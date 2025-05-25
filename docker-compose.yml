@@ -1,0 +1,186 @@
+# ==============================================================================
+# IP MARKETPLACE - DOCKER COMPOSE CONFIGURATION
+# ==============================================================================
+
+version: '3.8'
+
+services:
+  # =============================================================================
+  # FRONTEND SERVICE
+  # =============================================================================
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: production
+      args:
+        - VITE_API_URL=${VITE_API_URL:-http://localhost:3001/api/v1}
+        - VITE_USE_MOCK_DATA=${VITE_USE_MOCK_DATA:-false}
+        - VITE_ENVIRONMENT=${VITE_ENVIRONMENT:-production}
+        - VITE_ENABLE_DEMO_MODE=${VITE_ENABLE_DEMO_MODE:-false}
+    container_name: imi-frontend
+    ports:
+      - "80:80"
+    environment:
+      - NODE_ENV=production
+    networks:
+      - imi-network
+    volumes:
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      - backend
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.frontend.rule=Host(`ipmarketplace.com`)"
+      - "traefik.http.routers.frontend.tls=true"
+      - "traefik.http.routers.frontend.tls.certresolver=letsencrypt"
+
+  # =============================================================================
+  # BACKEND SERVICE (Mock/Reference)
+  # =============================================================================
+  backend:
+    image: node:18-alpine
+    container_name: imi-backend
+    working_dir: /app
+    ports:
+      - "3001:3001"
+    environment:
+      - NODE_ENV=production
+      - PORT=3001
+      - DATABASE_URL=${DATABASE_URL}
+      - JWT_SECRET=${JWT_SECRET}
+      - REDIS_URL=${REDIS_URL}
+    networks:
+      - imi-network
+    volumes:
+      - ./backend:/app:ro
+    command: ["npm", "start"]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # =============================================================================
+  # DATABASE SERVICE
+  # =============================================================================
+  database:
+    image: postgres:15-alpine
+    container_name: imi-db
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-ip_marketplace}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-password}
+      POSTGRES_INITDB_ARGS: "--encoding=UTF-8 --lc-collate=C --lc-ctype=C"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./database/init:/docker-entrypoint-initdb.d:ro
+    ports:
+      - "5432:5432"
+    networks:
+      - imi-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-ip_marketplace}"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # =============================================================================
+  # REDIS SERVICE (Caching & Sessions)
+  # =============================================================================
+  redis:
+    image: redis:7-alpine
+    container_name: imi-redis
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:-password}
+    volumes:
+      - redis_data:/data
+    ports:
+      - "6379:6379"
+    networks:
+      - imi-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # =============================================================================
+  # NGINX REVERSE PROXY (Optional)
+  # =============================================================================
+  nginx-proxy:
+    image: nginx:alpine
+    container_name: imi-proxy
+    ports:
+      - "443:443"
+      - "8080:80"
+    volumes:
+      - ./nginx/proxy.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./nginx/ssl:/etc/nginx/ssl:ro
+    networks:
+      - imi-network
+    depends_on:
+      - frontend
+    restart: unless-stopped
+    profiles:
+      - proxy
+
+# =============================================================================
+# DEVELOPMENT OVERRIDE
+# =============================================================================
+  frontend-dev:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: development
+    container_name: imi-frontend-dev
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=development
+      - VITE_API_URL=http://localhost:3001/api/v1
+      - VITE_USE_MOCK_DATA=true
+      - VITE_ENABLE_DEMO_MODE=true
+      - VITE_ENABLE_DEV_TOOLS=true
+    volumes:
+      - .:/app
+      - /app/node_modules
+    networks:
+      - imi-network
+    profiles:
+      - development
+    stdin_open: true
+    tty: true
+
+# =============================================================================
+# NETWORKS
+# =============================================================================
+networks:
+  imi-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
+
+# =============================================================================
+# VOLUMES
+# =============================================================================
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+  node_modules:
+    driver: local
