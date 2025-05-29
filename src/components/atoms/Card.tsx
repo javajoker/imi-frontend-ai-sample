@@ -1,4 +1,4 @@
-import React from "react";
+import React, { JSX } from "react";
 import { clsx } from "clsx";
 
 interface CardProps extends React.HTMLAttributes<HTMLDivElement> {

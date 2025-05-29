@@ -1,4 +1,4 @@
-import axios, { AxiosInstance, AxiosResponse, AxiosError } from "axios";
+import axios, { AxiosInstance, AxiosRequestHeaders, AxiosResponse, AxiosError } from "axios";
 import { APIResponse } from "../types";
 import toast from "react-hot-toast";
 
@@ -23,7 +23,7 @@ apiClient.interceptors.request.use(
   (config) => {
     const token = localStorage.getItem("authToken");
     if (token) {
-      config.headers = config?.headers ?? {};
+      config.headers = config?.headers ?? {} as AxiosRequestHeaders;
       config.headers.Authorization = `Bearer ${token}`;
     }
     return config;

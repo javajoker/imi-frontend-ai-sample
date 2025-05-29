@@ -166,3 +166,5 @@ tramp
 # Local configuration
 config/local.js
 config/local.json
+
+tsconfig*.tsbuildinfo
